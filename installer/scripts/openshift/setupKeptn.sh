@@ -15,10 +15,11 @@ verify_kubectl $? "Creating NATS Cluster failed."
 
 #verify_kubectl $? "Creation of keptn ingress route failed."
 
-
-# Add config map in keptn namespace that contains the domain - this will be used by other services as well
-cat ../manifests/keptn/keptn-domain-configmap.yaml | \
-  sed 's~DOMAIN_PLACEHOLDER~'"$DOMAIN"'~' > ../manifests/gen/keptn-domain-configmap.yaml
+if [ "$INGRESS" = "istio" ]; then
+  # Add config map in keptn namespace that contains the domain - this will be used by other services as well
+  cat ../manifests/keptn/keptn-domain-configmap.yaml | \
+    sed 's~DOMAIN_PLACEHOLDER~'"$DOMAIN"'~' > ../manifests/gen/keptn-domain-configmap.yaml
+fi
 
 kubectl apply -f ../manifests/gen/keptn-domain-configmap.yaml
 verify_kubectl $? "Creating configmap keptn-domain in keptn namespace failed."
@@ -133,6 +134,18 @@ if [ "$INGRESS" = "istio" ]; then
 
   kubectl apply -f ../manifests/keptn/gen/keptn-api-virtualservice.yaml
   verify_kubectl $? "Deploying keptn api virtualservice failed."
+else
+  oc create route edge --service=api -n keptn --port=https api
+  #verify_kubectl $? "Exposing the Keptn API endpoint failed."
+  export DOMAIN=$(oc get route -n keptn api -oyaml | yq r - spec.host | sed 's~api-keptn.~~')
+  cat ../manifests/keptn/keptn-domain-configmap.yaml | \
+    sed 's~DOMAIN_PLACEHOLDER~'"$DOMAIN"'~' > ../manifests/gen/keptn-domain-configmap.yaml
+
+  kubectl apply -f ../manifests/gen/keptn-domain-configmap.yaml
+  verify_kubectl $? "Creating configmap keptn-domain in keptn namespace failed."
+  # Now that we know the cluster's base URL, we can recreate the api route with the proper hostname for compatibility among platforms
+  oc delete route api -n keptn
+  oc create route edge --service=api -n keptn --port=https api --hostname="api.keptn.$DOMAIN"
 fi
 
 helm init
